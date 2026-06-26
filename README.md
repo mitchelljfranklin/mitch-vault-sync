@@ -10,7 +10,7 @@ Vaultwarden (local) ──[daily sync]──▶ Bitwarden Cloud (backup)
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/your-org/mitchvault-sync.git
+git clone https://github.com/mitchelljfranklin/mitchvault-sync.git
 cd mitchvault-sync
 cp .env.example .env
 # edit .env with your credentials
