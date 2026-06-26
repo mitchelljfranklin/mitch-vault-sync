@@ -1,4 +1,4 @@
-# MitchVault Sync
+# Mitch Vault Sync
 
 <div align="center">
 
