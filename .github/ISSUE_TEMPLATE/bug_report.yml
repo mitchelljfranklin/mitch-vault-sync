@@ -1,0 +1,84 @@
+name: Bug Report
+description: Report a problem with MitchVault Sync
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out as much detail as possible.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version/commit are you running?
+      placeholder: "e.g., main @ 402f931 or v1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the issue and what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (LOG_LEVEL=DEBUG)
+      description: |
+        Enable `LOG_LEVEL=DEBUG` in your `.env`, run a sync, and paste the output here.
+        Run: `docker compose logs mitchvault-sync --tail=200`
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: vault-size
+    attributes:
+      label: Vault size
+      description: Approximate number of items in the vault being synced.
+      placeholder: "e.g., 142"
+
+  - type: dropdown
+    id: vaultwarden-version
+    attributes:
+      label: Vaultwarden version
+      options:
+        - "1.30 or newer"
+        - "1.29 or older"
+        - "Unknown"
+
+  - type: dropdown
+    id: bitwarden-account
+    attributes:
+      label: Bitwarden account type
+      options:
+        - Free (personal)
+        - Premium (personal)
+        - Family
+        - Teams / Enterprise
+
+  - type: dropdown
+    id: auth-method
+    attributes:
+      label: Vaultwarden auth method
+      options:
+        - API key
+        - Email + password
+
+  - type: input
+    id: schedule
+    attributes:
+      label: Sync schedule
+      description: What SYNC_SCHEDULE or SYNC_CRON are you using?
+      placeholder: "e.g., daily"
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else we should know?

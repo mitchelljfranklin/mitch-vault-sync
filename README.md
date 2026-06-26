@@ -291,6 +291,8 @@ docker compose build --build-arg BW_VERSION=2024.11.1
 
 The `bw` CLI binary is downloaded for the correct architecture automatically.
 
+See **[PRIVACY.md](PRIVACY.md)** for a comprehensive security and privacy document covering data flow, encryption states, storage locations, and hardening recommendations.
+
 ## Security
 
 - **API keys** and **master passwords** are stored as environment variables

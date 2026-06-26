@@ -1,0 +1,71 @@
+name: Configuration Help
+description: Need help setting up MitchVault Sync?
+title: "[Help]: "
+labels: ["help-wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Stuck on setup? Fill this out and we'll help.
+
+  - type: textarea
+    id: what-tried
+    attributes:
+      label: What have you tried?
+      description: Steps you've taken so far.
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or unexpected behavior
+      description: |
+        If you're seeing an error, enable `LOG_LEVEL=DEBUG` and paste the output.
+        Run: `docker compose logs mitchvault-sync --tail=100`
+      render: text
+
+  - type: input
+    id: os
+    attributes:
+      label: Host OS
+      placeholder: "e.g., Ubuntu 24.04, macOS 15, Synology DSM 7"
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker version
+      placeholder: "e.g., 27.1.0"
+
+  - type: input
+    id: vaultwarden-version
+    attributes:
+      label: Vaultwarden version
+      placeholder: "e.g., 1.32.0"
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Bitwarden region
+      options:
+        - US (vault.bitwarden.com)
+        - EU (vault.bitwarden.eu)
+        - Self-hosted / other
+
+  - type: dropdown
+    id: auth-method
+    attributes:
+      label: Vaultwarden auth method
+      options:
+        - API key
+        - Email + password
+        - Both (letting auto-detect choose)
+
+  - type: textarea
+    id: env-redacted
+    attributes:
+      label: Your .env file (redact secrets)
+      description: |
+        Paste your .env file with all secrets replaced by `***`.
+        This helps us spot configuration issues.
+      render: text
