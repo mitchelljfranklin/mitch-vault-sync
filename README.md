@@ -1,10 +1,14 @@
 # MitchVault Sync
 
+<div align="center">
+
 ![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Docker](https://img.shields.io/badge/docker-ready-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-linux%2Farm-lightgrey)
 [![PRs Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen)](CONTRIBUTING.md)
+
+</div>
 
 > Your Vaultwarden vault. Backed up to Bitwarden. Every day. Automatically.
 
