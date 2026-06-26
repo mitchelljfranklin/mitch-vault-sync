@@ -11,13 +11,13 @@ def setup_logging():
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
-    fmt = "%(asctime)s | %(levelname)-8s | %(name)-12s | %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
+    log_format = "%(asctime)s | %(levelname)-8s | %(name)-12s | %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
 
     logging.basicConfig(
         level=level,
-        format=fmt,
-        datefmt=datefmt,
+        format=log_format,
+        datefmt=date_format,
         stream=sys.stdout,
     )
 

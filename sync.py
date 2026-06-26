@@ -21,14 +21,14 @@ _sync_lock = threading.Lock()
 
 
 def parse_schedule():
-    cron = os.getenv("SYNC_CRON", "").strip()
-    schedule = os.getenv("SYNC_SCHEDULE", "daily").strip().lower()
+    cron_expression = os.getenv("SYNC_CRON", "").strip()
+    schedule_config = os.getenv("SYNC_SCHEDULE", "daily").strip().lower()
 
-    if cron:
-        logger.info("Schedule: %s (cron)", cron)
-        return CronTrigger.from_crontab(cron, timezone="UTC")
+    if cron_expression:
+        logger.info("Schedule: %s (cron)", cron_expression)
+        return CronTrigger.from_crontab(cron_expression, timezone="UTC")
 
-    simple = {
+    simple_schedules = {
         "hourly": ("hours", 1),
         "daily": ("hours", 24),
         "24h": ("hours", 24),
@@ -41,17 +41,17 @@ def parse_schedule():
         "7d": ("days", 7),
     }
 
-    if schedule in simple:
-        unit, val = simple[schedule]
-        logger.info("Schedule: every %d %s", val, unit)
-        return IntervalTrigger(**{unit: val})
+    if schedule_config in simple_schedules:
+        interval_unit, interval_value = simple_schedules[schedule_config]
+        logger.info("Schedule: every %d %s", interval_value, interval_unit)
+        return IntervalTrigger(**{interval_unit: interval_value})
 
     try:
-        parts = schedule.split()
-        hour, minute = map(int, parts[0].split(":"))
-        tz = parts[1] if len(parts) > 1 else "UTC"
-        logger.info("Schedule: daily at %02d:%02d %s", hour, minute, tz)
-        return CronTrigger(hour=hour, minute=minute, timezone=tz)
+        schedule_parts = schedule_config.split()
+        hour, minute = map(int, schedule_parts[0].split(":"))
+        schedule_timezone = schedule_parts[1] if len(schedule_parts) > 1 else "UTC"
+        logger.info("Schedule: daily at %02d:%02d %s", hour, minute, schedule_timezone)
+        return CronTrigger(hour=hour, minute=minute, timezone=schedule_timezone)
     except (ValueError, IndexError):
         pass
 
@@ -63,18 +63,22 @@ def parse_schedule():
 
 
 def validate_env():
-    required = {
+    required_variables = {
         "VAULTWARDEN_URL": "Vaultwarden server URL",
         "VAULTWARDEN_MP": "Vaultwarden master password",
         "BITWARDEN_CLIENT_ID": "Bitwarden API key client ID",
         "BITWARDEN_CLIENT_SECRET": "Bitwarden API key client secret",
     }
 
-    missing = [f"{k} ({v})" for k, v in required.items() if not os.getenv(k)]
-    if missing:
+    missing_variables = [
+        f"{variable_name} ({variable_description})"
+        for variable_name, variable_description in required_variables.items()
+        if not os.getenv(variable_name)
+    ]
+    if missing_variables:
         logger.error("Missing required environment variables:")
-        for m in missing:
-            logger.error("  - %s", m)
+        for missing_entry in missing_variables:
+            logger.error("  - %s", missing_entry)
         return False
 
     has_api_key = bool(
@@ -102,7 +106,7 @@ def run_sync():
         return False
 
     try:
-        start = time.time()
+        start_time = time.time()
         logger.info("=" * 60)
         logger.info("MitchVault Sync — starting cycle")
         logger.info("=" * 60)
@@ -113,7 +117,7 @@ def run_sync():
         importer = BitwardenImporter()
         result = importer.run(cache)
 
-        elapsed = time.time() - start
+        elapsed = time.time() - start_time
         logger.info(
             "Sync complete: exported %d, imported %d in %.0fs",
             result["exported"],
@@ -121,14 +125,16 @@ def run_sync():
             elapsed,
         )
 
-        with open("/data/last_sync", "w") as f:
-            f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        with open("/data/last_sync", "w") as sync_timestamp_file:
+            sync_timestamp_file.write(
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            )
 
         return True
 
-    except Exception as e:
-        elapsed = time.time() - start
-        logger.error("Sync FAILED after %.0fs: %s", elapsed, e, exc_info=True)
+    except Exception as error:
+        elapsed = time.time() - start_time
+        logger.error("Sync FAILED after %.0fs: %s", elapsed, error, exc_info=True)
         return False
 
     finally:
@@ -160,8 +166,8 @@ def main():
     logger.info("Running initial sync on startup...")
     run_sync()
 
-    def shutdown(signum, frame):
-        logger.info("Received signal %d, shutting down...", signum)
+    def shutdown(signal_number, _frame):
+        logger.info("Received signal %d, shutting down...", signal_number)
         scheduler.shutdown(wait=False)
         sys.exit(0)
 
