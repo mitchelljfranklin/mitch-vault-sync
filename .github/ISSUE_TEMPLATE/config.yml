@@ -8,5 +8,5 @@ contact_links:
     url: https://github.com/mitchelljfranklin/mitchvault-sync/discussions
     about: Ask questions, share ideas, or discuss usage here.
   - name: Security Vulnerability
-    url: https://github.com/mitchelljfranklin/mitchvault-sync/blob/main/PRIVACY.md#vulnerability-reporting
-    about: Do NOT open a public issue. See PRIVACY.md for reporting instructions.
+    url: https://github.com/mitchelljfranklin/mitchvault-sync/blob/main/SECURITY.md#reporting-a-vulnerability
+    about: Do NOT open a public issue. See SECURITY.md for responsible disclosure.

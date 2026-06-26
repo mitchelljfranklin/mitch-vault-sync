@@ -404,6 +404,8 @@ The Bitwarden CLI binary is downloaded for the correct architecture at build tim
 
 See **[PRIVACY.md](PRIVACY.md)** for a comprehensive document covering data flow, encryption states, storage locations, and hardening recommendations.
 
+To report a vulnerability, see **[SECURITY.md](SECURITY.md)**.
+
 ---
 
 ## Contributing

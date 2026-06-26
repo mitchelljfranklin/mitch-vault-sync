@@ -135,11 +135,7 @@ MitchVault Sync processes the minimum data needed to function:
 
 ## Vulnerability Reporting
 
-If you discover a security vulnerability, please report it privately:
-
-1. Do **not** open a public issue
-2. Contact the repository maintainer directly
-3. Allow reasonable time for a fix before public disclosure
+If you discover a security vulnerability, please follow the process in **[SECURITY.md](SECURITY.md)**. Do not open a public issue.
 
 ## External Dependencies
 
