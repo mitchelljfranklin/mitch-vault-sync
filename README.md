@@ -1,8 +1,9 @@
 # MitchVault Sync
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Docker](https://img.shields.io/badge/docker-ready-brightgreen)
+![Platform](https://img.shields.io/badge/platform-linux%2Farm-lightgrey)
 [![PRs Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen)](CONTRIBUTING.md)
 
 > Your Vaultwarden vault. Backed up to Bitwarden. Every day. Automatically.
@@ -48,13 +49,26 @@ You self-host Vaultwarden for privacy and control. But what happens if the serve
 
 MitchVault Sync gives you an always-fresh, always-encrypted copy of your vault in Bitwarden cloud. It runs on your schedule, handles every item type (including passkeys and TOTP seeds), and requires zero manual steps after setup.
 
-| What it solves | How |
+| :lock: Problem | :key: Solution |
 |---|---|
 | No off-site backup | Mirrors every item to Bitwarden cloud |
 | Manual exports are error-prone | Fully automated, runs on a schedule |
 | Passkeys get left behind | FIDO2 credentials transfer intact |
 | TOTP seeds require separate backup | Authenticator seeds are synced with their logins |
 | DR plan requires remembering to export | Set it, forget it, check the logs |
+
+### Feature Highlights
+
+| Category | Capability |
+|---|---|
+| :bust_in_silhouette: Identity | Logins, passkeys, cards, identities — all item types |
+| :key: Secrets | TOTP seeds, custom fields, password history |
+| :file_folder: Organisation | Folders are recreated and items placed correctly |
+| :zap: Speed | 10 export workers, 5 import workers — parallel by default |
+| :clock1: Schedule | Human-readable (`daily`, `weekly`, `3:00`) or cron |
+| :mag: Visibility | INFO logs for overview, DEBUG for per-item tracing |
+| :lock: Security | API key auth, TLS everywhere, no telemetry, no third parties |
+| :package: Deploy | Single `docker compose up -d`, runs on Pi, Synology, VPS |
 
 ---
 
@@ -400,4 +414,33 @@ See **[CONTRIBUTING.md](CONTRIBUTING.md)** for code style requirements — human
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+[GNU General Public License v3.0](LICENSE)
+
+```
+MitchVault Sync — One-way Vaultwarden to Bitwarden vault synchronization.
+Copyright (C) 2026  MitchVault Sync Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+```
+
+---
+
+<div align="center">
+
+**[Documentation](README.md)** &nbsp;|&nbsp;
+**[Privacy & Security](PRIVACY.md)** &nbsp;|&nbsp;
+**[Contributing](CONTRIBUTING.md)** &nbsp;|&nbsp;
+**[Report a Bug](https://github.com/mitchelljfranklin/mitchvault-sync/issues/new?template=bug_report.yml)** &nbsp;|&nbsp;
+**[Request a Feature](https://github.com/mitchelljfranklin/mitchvault-sync/issues/new?template=feature_request.yml)**
+
+Made with :heart: for the self-hosting community.
+
+</div>
