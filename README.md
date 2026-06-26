@@ -221,7 +221,7 @@ Set `LOG_LEVEL=DEBUG` to see every `bw` command, HTTP response, and per-item pro
 
 ```
 2026-06-26 02:00:05 | DEBUG    | exporter     | [1/142] GitHub (1)
-2026-06-26 02:00:05 | DEBUG    | exporter     | bw: get item abc123-def456 --session ...
+2026-06-26 02:00:05 | DEBUG    | exporter     | Bitwarden CLI: get item abc123-def456 --session ...
 2026-06-26 02:01:20 | DEBUG    | importer     | [42/142] Creating: Google
 ```
 
@@ -300,6 +300,10 @@ See **[PRIVACY.md](PRIVACY.md)** for a comprehensive security and privacy docume
 - Never commit `.env` to version control (it's in `.gitignore`)
 - The vault cache file (`/data/vault_cache.json`) contains **decrypted** vault items — mount the data volume on encrypted storage if possible
 - The `bw` CLI session data is stored in `/data/vaultwarden/` and `/data/bitwarden/` — these directories persist across container restarts
+
+## Contributing
+
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for code style requirements (human-readable names and messages mandatory), commit conventions, and pull request workflow.
 
 ## License
 
