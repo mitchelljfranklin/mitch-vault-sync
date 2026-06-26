@@ -33,7 +33,7 @@ class BitwardenImporter:
 
     def _run(self, *arguments, extra_environment=None, standard_input=None, timeout=120):
         command = [self._bw_path(), *arguments]
-        logger.debug("bw: %s", " ".join(str(a) for a in arguments))
+        logger.debug("Bitwarden CLI: %s", " ".join(str(a) for a in arguments))
 
         process_environment = os.environ.copy()
         process_environment["BW_DATA_DIR"] = self.data_dir
@@ -50,7 +50,7 @@ class BitwardenImporter:
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"bw {' '.join(arguments)} failed: {result.stderr.strip()}"
+                f"Bitwarden CLI command failed ({' '.join(arguments)}): {result.stderr.strip()}"
             )
         return result.stdout.strip()
 
@@ -66,7 +66,7 @@ class BitwardenImporter:
             logger.warning("Cache is empty, nothing to import")
             return {"exported": 0, "imported": 0}
 
-        logger.info("Cache: %d items, %d folders", len(items), len(folders))
+        logger.info("Loaded cache: %d items, %d folders", len(items), len(folders))
         os.makedirs(self.data_dir, exist_ok=True)
 
         session = None
@@ -269,7 +269,7 @@ class BitwardenImporter:
                 if "rate limit" in error_message or "429" in error_message or "too many" in error_message:
                     wait_seconds = (2 ** attempt) * 2
                     logger.debug(
-                        "Rate limited, waiting %ds (attempt %d/3)...",
+                        "Rate limited by server, waiting %d seconds (attempt %d of 3)...",
                         wait_seconds,
                         attempt + 1,
                     )

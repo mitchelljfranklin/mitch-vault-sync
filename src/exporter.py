@@ -30,7 +30,7 @@ class VaultwardenExporter:
 
     def _run(self, *arguments, extra_environment=None, standard_input=None, timeout=120):
         command = [self._bw_path(), *arguments]
-        logger.debug("bw: %s", " ".join(str(a) for a in arguments))
+        logger.debug("Bitwarden CLI: %s", " ".join(str(a) for a in arguments))
 
         process_environment = os.environ.copy()
         process_environment["BW_DATA_DIR"] = self.data_dir
@@ -47,7 +47,7 @@ class VaultwardenExporter:
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"bw {' '.join(arguments)} failed: {result.stderr.strip()}"
+                f"Bitwarden CLI command failed ({' '.join(arguments)}): {result.stderr.strip()}"
             )
         return result.stdout.strip()
 
