@@ -108,24 +108,13 @@ class BitwardenImporter:
                 pass
 
     def _unlock(self):
-        try:
-            return self._run("unlock", "--apikey", "--raw")
-        except RuntimeError:
-            if self.master_password:
-                logger.debug(
-                    "API key unlock failed, trying master password..."
-                )
-                return self._run(
-                    "unlock",
-                    "--passwordenv",
-                    "BW_PASSWORD",
-                    "--raw",
-                    extra_environment={"BW_PASSWORD": self.master_password},
-                )
-            raise RuntimeError(
-                "Failed to unlock Bitwarden vault. "
-                "Set BITWARDEN_MP or ensure API key unlock is supported."
-            )
+        return self._run(
+            "unlock",
+            "--passwordenv",
+            "BW_PASSWORD",
+            "--raw",
+            extra_environment={"BW_PASSWORD": self.master_password},
+        )
 
     def _clear_vault(self, session):
         logger.info("Clearing existing vault...")
@@ -179,8 +168,10 @@ class BitwardenImporter:
         for folder in folders:
             name = folder.get("name", "Unnamed Folder")
             try:
+                payload = json.dumps({"name": name})
+                encoded = self._run("encode", standard_input=payload)
                 raw_output = self._run(
-                    "create", "folder", "--name", name, "--session", session
+                    "create", "folder", "--session", session, standard_input=encoded
                 )
                 created = json.loads(raw_output)
                 folder_map[folder["id"]] = created["id"]
@@ -236,6 +227,7 @@ class BitwardenImporter:
             "deletedDate",
             "edit",
             "viewPassword",
+            "attachments",
         ):
             clean.pop(key, None)
 
@@ -244,6 +236,8 @@ class BitwardenImporter:
             clean["folderId"] = folder_map[old_folder_id]
         elif old_folder_id:
             clean["folderId"] = None
+        elif old_folder_id is None and "folderId" in item:
+            clean.pop("folderId", None)
 
         login = clean.get("login")
         if login and login.get("fido2Credentials"):
@@ -257,11 +251,12 @@ class BitwardenImporter:
         logger.debug("[%d/%d] Creating: %s", item_index, total, name)
 
         payload = json.dumps(item)
+        encoded = self._run("encode", standard_input=payload)
 
         for attempt in range(3):
             try:
                 self._run(
-                    "create", "item", "--session", session, standard_input=payload
+                    "create", "item", "--session", session, standard_input=encoded
                 )
                 return
             except RuntimeError as error:

@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        BW_VERSION: "2024.11.1"
+        BW_VERSION: "2026.6.0"
     container_name: mitchvault-sync
     restart: unless-stopped
     env_file:

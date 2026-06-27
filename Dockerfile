@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-ARG BW_VERSION=2024.11.1
+ARG BW_VERSION=2026.6.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl unzip \
@@ -9,7 +9,6 @@ RUN apt-get update \
 RUN set -ex \
     && case "$(uname -m)" in \
         aarch64) BW_ARCH="-arm64" ;; \
-        armv7l)  BW_ARCH="-armv7" ;; \
         *)       BW_ARCH="" ;; \
     esac \
     && curl -fsSL "https://github.com/bitwarden/clients/releases/download/cli-v${BW_VERSION}/bw-linux${BW_ARCH}-${BW_VERSION}.zip" \

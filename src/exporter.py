@@ -16,10 +16,8 @@ class VaultwardenExporter:
         self.cache_path = cache_path
         self.url = os.getenv("VAULTWARDEN_URL", "").rstrip("/")
         self.master_password = os.getenv("VAULTWARDEN_MP", "")
-        self.client_id = os.getenv("VAULTWARDEN_CLIENT_ID")
-        self.client_secret = os.getenv("VAULTWARDEN_CLIENT_SECRET")
-        self.email = os.getenv("VAULTWARDEN_EMAIL")
-        self.password = os.getenv("VAULTWARDEN_PASSWORD")
+        self.email = os.getenv("VAULTWARDEN_EMAIL", "")
+        self.password = os.getenv("VAULTWARDEN_PASSWORD", "")
         self.max_workers = int(os.getenv("EXPORT_WORKERS", "10"))
 
     def _bw_path(self):
@@ -62,29 +60,13 @@ class VaultwardenExporter:
 
             # 2. Login
             logger.info("Logging into Vaultwarden...")
-            if self.client_id and self.client_secret:
-                logger.debug("Using API key auth")
-                self._run(
-                    "login",
-                    "--apikey",
-                    extra_environment={
-                        "BW_CLIENTID": self.client_id,
-                        "BW_CLIENTSECRET": self.client_secret,
-                    },
-                )
-            elif self.email and self.password:
-                logger.debug("Using email/password auth")
-                self._run(
-                    "login",
-                    self.email,
-                    "--passwordenv",
-                    "BW_PASSWORD",
-                    extra_environment={"BW_PASSWORD": self.password},
-                )
-            else:
-                raise RuntimeError(
-                    "Set VAULTWARDEN_CLIENT_ID/SECRET or VAULTWARDEN_EMAIL/PASSWORD"
-                )
+            self._run(
+                "login",
+                self.email,
+                "--passwordenv",
+                "BW_PASSWORD",
+                extra_environment={"BW_PASSWORD": self.password},
+            )
 
             # 3. Unlock
             logger.debug("Unlocking vault...")
@@ -157,17 +139,13 @@ class VaultwardenExporter:
                 pass
 
     def _unlock(self):
-        try:
-            return self._run("unlock", "--apikey", "--raw")
-        except RuntimeError:
-            logger.debug("API key unlock failed, trying master password...")
-            return self._run(
-                "unlock",
-                "--passwordenv",
-                "BW_PASSWORD",
-                "--raw",
-                extra_environment={"BW_PASSWORD": self.master_password},
-            )
+        return self._run(
+            "unlock",
+            "--passwordenv",
+            "BW_PASSWORD",
+            "--raw",
+            extra_environment={"BW_PASSWORD": self.master_password},
+        )
 
     def _get_item(self, item_id, session):
         raw_output = self._run("get", "item", item_id, "--session", session)

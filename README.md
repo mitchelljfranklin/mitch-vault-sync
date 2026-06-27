@@ -144,10 +144,9 @@ That's it. Your vault is now backing up automatically.
 ### Vaultwarden
 
 1. Log into your Vaultwarden web vault
-2. Go to **Account Settings** > **Security** > **Keys**
-3. Click **View API Key** (requires Vaultwarden v1.30+)
+2. Use your account **email** and **password** to authenticate
 
-If API keys are not available on your Vaultwarden version, set `VAULTWARDEN_EMAIL` and `VAULTWARDEN_PASSWORD` in your `.env` file as a fallback.
+Vaultwarden does not support personal API keys. Use `VAULTWARDEN_EMAIL` and `VAULTWARDEN_PASSWORD` in your `.env` file.
 
 ---
 
@@ -160,18 +159,15 @@ Copy `.env.example` to `.env` and fill in your values:
 VAULTWARDEN_URL=https://vault.example.com
 VAULTWARDEN_MP=your-master-password
 
-# Auth: API key (recommended)
-VAULTWARDEN_CLIENT_ID=user.your-client-id
-VAULTWARDEN_CLIENT_SECRET=your-client-secret
-
-# Auth: email/password (fallback — unset if using API key above)
-# VAULTWARDEN_EMAIL=user@example.com
-# VAULTWARDEN_PASSWORD=your-password
+# Auth: email/password
+VAULTWARDEN_EMAIL=user@example.com
+VAULTWARDEN_PASSWORD=your-password
 
 # ── Bitwarden Cloud (target) ──────────────────────────────
 BITWARDEN_CLIENT_ID=user.your-client-id
 BITWARDEN_CLIENT_SECRET=your-client-secret
 BITWARDEN_SERVER=https://vault.bitwarden.com       # or vault.bitwarden.eu
+BITWARDEN_MP=your-master-password
 
 # ── Scheduling ────────────────────────────────────────────
 SYNC_SCHEDULE=daily       # hourly | daily | 12h | 6h | weekly | 7d | "3:00"
@@ -184,17 +180,15 @@ LOG_LEVEL=INFO            # DEBUG for troubleshooting
 <summary><b>Full Environment Variable Reference</b> (click to expand)</summary>
 
 | Variable | Required | Default | Description |
-|---|---|---|---|
+|---|---|---|---|---|
 | `VAULTWARDEN_URL` | Yes | — | Your Vaultwarden instance URL |
 | `VAULTWARDEN_MP` | Yes | — | Master password to unlock the Vaultwarden vault |
-| `VAULTWARDEN_CLIENT_ID` | No | — | API key client ID (preferred authentication method) |
-| `VAULTWARDEN_CLIENT_SECRET` | No | — | API key client secret |
-| `VAULTWARDEN_EMAIL` | No | — | Email address (fallback if API key not set) |
-| `VAULTWARDEN_PASSWORD` | No | — | Password (fallback if API key not set) |
+| `VAULTWARDEN_EMAIL` | Yes | — | Email address for Vaultwarden login |
+| `VAULTWARDEN_PASSWORD` | Yes | — | Password for Vaultwarden login |
 | `BITWARDEN_CLIENT_ID` | Yes | — | Bitwarden cloud API key client ID |
 | `BITWARDEN_CLIENT_SECRET` | Yes | — | Bitwarden cloud API key client secret |
 | `BITWARDEN_SERVER` | No | `https://vault.bitwarden.com` | Bitwarden server — use `.eu` for EU region |
-| `BITWARDEN_MP` | No | — | Master password for fallback unlock (rarely needed) |
+| `BITWARDEN_MP` | Yes | — | Master password to unlock the Bitwarden vault |
 | `SYNC_SCHEDULE` | No | `daily` | Human-readable schedule (see [Scheduling](#scheduling)) |
 | `SYNC_CRON` | No | — | Raw cron expression — overrides `SYNC_SCHEDULE` |
 | `LOG_LEVEL` | No | `INFO` | Log verbosity — `INFO` or `DEBUG` |
@@ -341,14 +335,11 @@ Set `LOG_LEVEL=DEBUG` for per-item progress and every Bitwarden CLI command:
 ### Sync fails with "Bitwarden CLI command failed (login)"
 
 - Verify `VAULTWARDEN_URL` is reachable from the container
-- Check that `VAULTWARDEN_CLIENT_ID` and `VAULTWARDEN_CLIENT_SECRET` are correct
-- Ensure your Vaultwarden instance supports API keys (v1.30+)
-- Try email and password authentication as a fallback
+- Check that `VAULTWARDEN_EMAIL` and `VAULTWARDEN_PASSWORD` are correct
 
 ### Sync fails with "Bitwarden CLI command failed (unlock)"
 
-- Verify `VAULTWARDEN_MP` is correct
-- If using API key authentication, ensure your Vaultwarden version supports API key unlock
+- Verify `BITWARDEN_MP` is correct (API keys are for login only, vault decryption always requires the master password)
 - Check for special characters in the password that may need escaping in `.env`
 
 ### "Failed to create item" or rate limit errors

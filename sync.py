@@ -66,8 +66,11 @@ def validate_env():
     required_variables = {
         "VAULTWARDEN_URL": "Vaultwarden server URL",
         "VAULTWARDEN_MP": "Vaultwarden master password",
+        "VAULTWARDEN_EMAIL": "Vaultwarden email address",
+        "VAULTWARDEN_PASSWORD": "Vaultwarden password",
         "BITWARDEN_CLIENT_ID": "Bitwarden API key client ID",
         "BITWARDEN_CLIENT_SECRET": "Bitwarden API key client secret",
+        "BITWARDEN_MP": "Bitwarden master password",
     }
 
     missing_variables = [
@@ -79,22 +82,6 @@ def validate_env():
         logger.error("Missing required environment variables:")
         for missing_entry in missing_variables:
             logger.error("  - %s", missing_entry)
-        return False
-
-    has_api_key = bool(
-        os.getenv("VAULTWARDEN_CLIENT_ID")
-        and os.getenv("VAULTWARDEN_CLIENT_SECRET")
-    )
-    has_email = bool(
-        os.getenv("VAULTWARDEN_EMAIL")
-        and os.getenv("VAULTWARDEN_PASSWORD")
-    )
-
-    if not has_api_key and not has_email:
-        logger.error(
-            "Vaultwarden auth: set VAULTWARDEN_CLIENT_ID/SECRET "
-            "or VAULTWARDEN_EMAIL/PASSWORD"
-        )
         return False
 
     return True
