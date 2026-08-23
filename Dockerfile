@@ -15,7 +15,8 @@ RUN set -ex \
         -o /tmp/bw.zip \
     && unzip /tmp/bw.zip -d /usr/local/bin/ \
     && chmod +x /usr/local/bin/bw \
-    && rm /tmp/bw.zip
+    && rm /tmp/bw.zip \
+    && apt-get purge -y --auto-remove curl unzip
 
 WORKDIR /app
 
@@ -27,7 +28,9 @@ COPY src/ src/
 
 RUN mkdir -p /data
 
+# Healthy only while the last successful sync is recent; a stale last_sync
+# means syncs have been failing, which the old file-existence check hid forever
 HEALTHCHECK --interval=1h --timeout=10s --start-period=5m \
-    CMD test -f /data/last_sync || exit 1
+    CMD python -c "import os,time,sys; p='/data/last_sync'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < float(os.getenv('HEALTHCHECK_MAX_AGE_HOURS','48'))*3600 else 1)"
 
 CMD ["python", "sync.py"]

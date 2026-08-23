@@ -9,17 +9,17 @@ This document covers what data MitchVault Sync handles, where it flows, how it's
 │   Vaultwarden   │   TLS    │  MitchVault Sync  │   TLS    │  Bitwarden Cloud │
 │    (local)      │◄────────►│    (container)     │◄────────►│   (api.bitwarden.com│
 └─────────────────┘          └──────┬───────────┘          └─────────────────┘
-                                    │
-                                    ▼
-                            /data/vault_cache.json
-                            (decrypted vault — ephemeral)
+                                     │
+                                     ▼
+                             /data/vault_export.json
+                        (decrypted vault — deleted after each cycle)
 ```
 
 ## What Data the Container Handles
 
 | Data | Source | Format In Transit | Format At Rest |
 |---|---|---|---|
-| Vault items (logins, passkeys, notes, cards, identities) | Vaultwarden | TLS-encrypted | **Decrypted** in `/data/vault_cache.json` |
+| Vault items (logins, passkeys, notes, cards, identities) | Vaultwarden | TLS-encrypted | **Decrypted** in `/data/vault_export.json` during the sync cycle only |
 | Master password | `.env` file | Not transmitted over network | Plain text in environment variable |
 | API keys (client id + secret) | `.env` file | TLS-encrypted (Bearer token) | Plain text in environment variable |
 | `bw` CLI session tokens | Generated at runtime | N/A (local only) | In-memory only |
@@ -27,13 +27,15 @@ This document covers what data MitchVault Sync handles, where it flows, how it's
 
 ## Storage Locations
 
-### `/data/vault_cache.json`
+### `/data/vault_export.json`
 
 **Contains your fully decrypted vault** — every password, passkey credential, TOTP seed, note, and custom field in plain JSON. This file is:
 
-- Created during the export phase
-- Read during the import phase
-- Persisted between sync cycles on the Docker volume
+- Created by a single `bw export` call during the export phase
+- Consumed by a single `bw import` call during the import phase
+- **Deleted at the end of every sync cycle**, successful or not
+
+It does not persist between cycles.
 
 **Mitigation**: The file is only needed during active sync. If your storage is encrypted at the filesystem level (LUKS, dm-crypt), the plaintext is protected at rest. You can mount the `./data` volume on a `tmpfs` to keep it in memory only:
 
@@ -68,11 +70,11 @@ Contains your API keys and master password in plain text. This file:
 | Stage | Encryption |
 |---|---|
 | Vaultwarden → Container (export) | TLS (HTTPS) |
-| Inside container during export | Decrypted (in memory + cache file) |
+| Inside container during export | Decrypted (in memory + export file) |
 | Container → Bitwarden Cloud (import) | TLS (HTTPS) |
 | Bitwarden Cloud at rest | Encrypted with your Bitwarden master key |
 
-The container acts as a **decryption/encryption relay**. It decrypts items from Vaultwarden, then re-encrypts them for Bitwarden. During this gap, items exist in plaintext within the container's memory and cache file.
+The container acts as a **decryption/encryption relay**. It decrypts items from Vaultwarden, then re-encrypts them for Bitwarden. During this gap, items exist in plaintext within the container's memory and the transient export file.
 
 ## Security Recommendations
 
@@ -82,7 +84,7 @@ The container acts as a **decryption/encryption relay**. It decrypts items from 
 |---|---|
 | Never commit `.env` to version control | Contains master password and API keys |
 | Use API keys instead of passwords where possible | API keys can be scoped and revoked independently |
-| Run the container on a trusted host | Cache file contains your entire vault in plaintext |
+| Run the container on a trusted host | Export file contains your entire vault in plaintext while a sync runs |
 
 ### Recommended
 
@@ -91,7 +93,7 @@ The container acts as a **decryption/encryption relay**. It decrypts items from 
 | Encrypt the host filesystem | LUKS on Linux, FileVault on macOS |
 | Restrict `.env` permissions | `chmod 600 .env` |
 | Use Docker secrets | `docker secret create` instead of env vars in Swarm mode |
-| Mount data volume as tmpfs | Keeps cache file in RAM, never written to disk |
+| Mount data volume as tmpfs | Keeps the export file in RAM, never written to disk |
 | Use a dedicated Bitwarden account | Create a separate Bitwarden account just for the backup, limiting blast radius |
 | Rotate API keys periodically | Bitwarden: revoke and reissue; Vaultwarden: similar in web UI |
 | Monitor container logs | Watch for auth failures, which could indicate credential compromise |

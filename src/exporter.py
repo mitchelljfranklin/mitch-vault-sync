@@ -1,64 +1,32 @@
 import os
 import json
-import subprocess
-import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
 
+from .bw_cli import BitwardenCli
 from .logger import get_logger
 
 logger = get_logger(__name__)
 
+EXPORT_PATH = "/data/vault_export.json"
 
-class VaultwardenExporter:
-    def __init__(self, data_dir="/data/vaultwarden", cache_path="/data/vault_cache.json"):
-        self.data_dir = data_dir
-        self.cache_path = cache_path
+
+class VaultwardenExporter(BitwardenCli):
+    def __init__(self, export_path=EXPORT_PATH):
+        super().__init__(data_dir="/data/vaultwarden")
+        self.export_path = export_path
         self.url = os.getenv("VAULTWARDEN_URL", "").rstrip("/")
         self.master_password = os.getenv("VAULTWARDEN_MP", "")
         self.email = os.getenv("VAULTWARDEN_EMAIL", "")
         self.password = os.getenv("VAULTWARDEN_PASSWORD", "")
-        self.max_workers = int(os.getenv("EXPORT_WORKERS", "10"))
-
-    def _bw_path(self):
-        for candidate_path in ["bw", "/usr/local/bin/bw"]:
-            if shutil.which(candidate_path):
-                return candidate_path
-        return "bw"
-
-    def _run(self, *arguments, extra_environment=None, standard_input=None, timeout=120):
-        command = [self._bw_path(), *arguments]
-        logger.debug("Bitwarden CLI: %s", " ".join(str(a) for a in arguments))
-
-        process_environment = os.environ.copy()
-        process_environment["BW_DATA_DIR"] = self.data_dir
-        if extra_environment:
-            process_environment.update(extra_environment)
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            env=process_environment,
-            timeout=timeout,
-            input=standard_input,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Bitwarden CLI command failed ({' '.join(arguments)}): {result.stderr.strip()}"
-            )
-        return result.stdout.strip()
 
     def run(self):
         os.makedirs(self.data_dir, exist_ok=True)
 
-        session = None
         try:
             # 1. Configure server
             logger.info("Configuring Vaultwarden server: %s", self.url)
             self._run("config", "server", self.url)
 
-            # 2. Login
+            # 2. Login (Vaultwarden does not support API keys)
             logger.info("Logging into Vaultwarden...")
             self._run(
                 "login",
@@ -68,85 +36,50 @@ class VaultwardenExporter:
                 extra_environment={"BW_PASSWORD": self.password},
             )
 
-            # 3. Unlock
+            # 3. Unlock (decryption always requires the master password)
             logger.debug("Unlocking vault...")
-            session = self._unlock()
-
-            # 4. List items
-            logger.info("Listing vault items...")
-            items_raw_output = self._run("list", "items", "--session", session)
-            items = json.loads(items_raw_output)
-            logger.info("Found %d items", len(items))
-
-            if not items:
-                logger.warning("No items found in vault")
-                cache = {
-                    "items": [],
-                    "folders": [],
-                    "exported_at": datetime.now(timezone.utc).isoformat(),
-                }
-                with open(self.cache_path, "w") as cache_file:
-                    json.dump(cache, cache_file)
-                return cache
-
-            # 5. Fetch full items in parallel
-            logger.info(
-                "Fetching %d items (%d workers)...",
-                len(items),
-                self.max_workers,
+            session = self._run(
+                "unlock",
+                "--passwordenv",
+                "BW_PASSWORD",
+                "--raw",
+                extra_environment={"BW_PASSWORD": self.master_password},
             )
-            full_items = []
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {
-                    executor.submit(self._get_item, item_summary["id"], session): item_summary
-                    for item_summary in items
-                }
-                for index, future in enumerate(as_completed(futures), 1):
-                    item = future.result()
-                    full_items.append(item)
-                    logger.debug(
-                        "[%d/%d] %s", index, len(items), item.get("name", "Unknown")
-                    )
 
-            # 6. Get folders
-            logger.debug("Fetching folders...")
-            folders_raw_output = self._run("list", "folders", "--session", session)
-            folders = json.loads(folders_raw_output)
-            logger.info("Found %d folders", len(folders))
+            # 4. Export the whole vault in a single call
+            logger.info("Exporting vault to %s...", self.export_path)
+            self._run(
+                "export",
+                "--format",
+                "json",
+                "--output",
+                self.export_path,
+                "--session",
+                session,
+                timeout=600,
+            )
 
-            # 7. Save cache
-            cache = {
-                "items": full_items,
-                "folders": folders,
-                "exported_at": datetime.now(timezone.utc).isoformat(),
+            with open(self.export_path, encoding="utf-8") as export_file:
+                exported_vault = json.load(export_file)
+
+            item_count = len(exported_vault.get("items", []))
+            folder_count = len(exported_vault.get("folders", []))
+            if item_count == 0:
+                logger.warning("Exported vault contains no items")
+
+            logger.info(
+                "Export complete: %d items, %d folders",
+                item_count,
+                folder_count,
+            )
+            return {
+                "export_path": self.export_path,
+                "item_count": item_count,
+                "folder_count": folder_count,
             }
-            with open(self.cache_path, "w") as cache_file:
-                json.dump(cache, cache_file, indent=2, default=str)
-
-            logger.info(
-                "Exported %d items, %d folders -> %s",
-                len(full_items),
-                len(folders),
-                self.cache_path,
-            )
-            return cache
 
         finally:
-            # Always logout
             try:
                 self._run("logout")
             except Exception:
                 pass
-
-    def _unlock(self):
-        return self._run(
-            "unlock",
-            "--passwordenv",
-            "BW_PASSWORD",
-            "--raw",
-            extra_environment={"BW_PASSWORD": self.master_password},
-        )
-
-    def _get_item(self, item_id, session):
-        raw_output = self._run("get", "item", item_id, "--session", session)
-        return json.loads(raw_output)

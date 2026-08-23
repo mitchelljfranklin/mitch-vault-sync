@@ -51,8 +51,10 @@ def parse_schedule():
         hour, minute = map(int, schedule_parts[0].split(":"))
         schedule_timezone = schedule_parts[1] if len(schedule_parts) > 1 else "UTC"
         logger.info("Schedule: daily at %02d:%02d %s", hour, minute, schedule_timezone)
+        # Unknown timezone names raise KeyError deep inside CronTrigger,
+        # not ValueError, so this must catch broadly
         return CronTrigger(hour=hour, minute=minute, timezone=schedule_timezone)
-    except (ValueError, IndexError):
+    except Exception:
         pass
 
     logger.warning(
@@ -99,16 +101,16 @@ def run_sync():
         logger.info("=" * 60)
 
         exporter = VaultwardenExporter()
-        cache = exporter.run()
+        export_result = exporter.run()
 
         importer = BitwardenImporter()
-        result = importer.run(cache)
+        import_result = importer.run(export_result["export_path"])
 
         elapsed = time.time() - start_time
         logger.info(
             "Sync complete: exported %d, imported %d in %.0fs",
-            result["exported"],
-            result["imported"],
+            export_result["item_count"],
+            import_result["imported_count"],
             elapsed,
         )
 

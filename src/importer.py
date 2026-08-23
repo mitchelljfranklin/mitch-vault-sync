@@ -1,81 +1,42 @@
 import os
 import json
-import subprocess
-import shutil
-import copy
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .bw_cli import BitwardenCli
 from .logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class BitwardenImporter:
-    def __init__(
-        self, data_dir="/data/bitwarden", cache_path="/data/vault_cache.json"
-    ):
-        self.data_dir = data_dir
-        self.cache_path = cache_path
+class BitwardenImporter(BitwardenCli):
+    def __init__(self):
+        super().__init__(data_dir="/data/bitwarden")
         self.server = os.getenv(
             "BITWARDEN_SERVER", "https://vault.bitwarden.com"
         ).rstrip("/")
         self.client_id = os.getenv("BITWARDEN_CLIENT_ID", "")
         self.client_secret = os.getenv("BITWARDEN_CLIENT_SECRET", "")
         self.master_password = os.getenv("BITWARDEN_MP", "")
-        self.max_workers = int(os.getenv("IMPORT_WORKERS", "5"))
 
-    def _bw_path(self):
-        for candidate_path in ["bw", "/usr/local/bin/bw"]:
-            if shutil.which(candidate_path):
-                return candidate_path
-        return "bw"
+    def run(self, export_path):
+        with open(export_path, encoding="utf-8") as export_file:
+            exported_vault = json.load(export_file)
 
-    def _run(self, *arguments, extra_environment=None, standard_input=None, timeout=120):
-        command = [self._bw_path(), *arguments]
-        logger.debug("Bitwarden CLI: %s", " ".join(str(a) for a in arguments))
-
-        process_environment = os.environ.copy()
-        process_environment["BW_DATA_DIR"] = self.data_dir
-        if extra_environment:
-            process_environment.update(extra_environment)
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            env=process_environment,
-            timeout=timeout,
-            input=standard_input,
+        expected_items = len(exported_vault.get("items", []))
+        expected_folders = len(exported_vault.get("folders", []))
+        logger.info(
+            "Loaded export: %d items, %d folders",
+            expected_items,
+            expected_folders,
         )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Bitwarden CLI command failed ({' '.join(arguments)}): {result.stderr.strip()}"
-            )
-        return result.stdout.strip()
 
-    def run(self, cache=None):
-        if cache is None:
-            with open(self.cache_path) as cache_file:
-                cache = json.load(cache_file)
-
-        items = cache.get("items", [])
-        folders = cache.get("folders", [])
-
-        if not items:
-            logger.warning("Cache is empty, nothing to import")
-            return {"exported": 0, "imported": 0}
-
-        logger.info("Loaded cache: %d items, %d folders", len(items), len(folders))
-        os.makedirs(self.data_dir, exist_ok=True)
-
-        session = None
         try:
             # 1. Configure server
             logger.info("Configuring Bitwarden server: %s", self.server)
             self._run("config", "server", self.server)
 
-            # 2. Login
+            # 2. Login (API key authenticates identity only)
             logger.info("Logging into Bitwarden cloud...")
             self._run(
                 "login",
@@ -86,45 +47,112 @@ class BitwardenImporter:
                 },
             )
 
-            # 3. Unlock
+            # 3. Unlock (decryption always requires the master password)
             logger.debug("Unlocking vault...")
-            session = self._unlock()
+            session = self._run(
+                "unlock",
+                "--passwordenv",
+                "BW_PASSWORD",
+                "--raw",
+                extra_environment={"BW_PASSWORD": self.master_password},
+            )
 
-            # 4. Clear existing vault
+            # 4. Clear existing vault (import merges, it never replaces)
             self._clear_vault(session)
 
-            # 5. Recreate folders
-            folder_map = self._recreate_folders(session, folders)
+            # 5. Import the whole vault in a single native call;
+            #    the bitwardenjson importer rebuilds folders and remaps references itself
+            logger.info(
+                "Importing %d items via Bitwarden CLI import...",
+                expected_items,
+            )
+            self._run(
+                "import",
+                "bitwardenjson",
+                export_path,
+                "--session",
+                session,
+                timeout=1800,
+            )
 
-            # 6. Import items
-            imported = self._import_items(session, items, folder_map)
+            # 6. Verify the target vault matches the export before declaring success.
+            # The plain item list is the only reliable count: the --archived
+            # filter is unreliable in CLI 2026.x and can return every item, so
+            # expected visibility is derived from the export instead. Archived
+            # items are hidden from the plain list, hence subtracted here.
+            expected_visible = expected_items - len(
+                [
+                    item
+                    for item in exported_vault.get("items", [])
+                    if item.get("archivedDate")
+                ]
+            )
+            imported_count = None
+            for attempt in range(1, 6):
+                visible_listing = self._run("list", "items", "--session", session)
+                imported_count = len(json.loads(visible_listing))
+                if imported_count == expected_visible:
+                    break
+                logger.info(
+                    "Verification attempt %d of 5 found %d of %d visible items; "
+                    "waiting 15 seconds before retrying...",
+                    attempt,
+                    imported_count,
+                    expected_visible,
+                )
+                time.sleep(15)
 
-            return {"exported": len(items), "imported": imported}
+            if imported_count != expected_visible:
+                raise RuntimeError(
+                    f"Import verification failed: expected {expected_visible} "
+                    f"visible items but found {imported_count} in the Bitwarden vault"
+                )
+            logger.info(
+                "Import verified: %d/%d items present in Bitwarden",
+                expected_items,
+                expected_items,
+            )
+
+            return {"imported_count": imported_count}
 
         finally:
+            # The export file is plaintext; never leave it on disk after the cycle
+            try:
+                os.remove(export_path)
+            except FileNotFoundError:
+                pass
+
             try:
                 self._run("logout")
             except Exception:
                 pass
 
-    def _unlock(self):
-        return self._run(
-            "unlock",
-            "--passwordenv",
-            "BW_PASSWORD",
-            "--raw",
-            extra_environment={"BW_PASSWORD": self.master_password},
-        )
-
     def _clear_vault(self, session):
         logger.info("Clearing existing vault...")
 
-        # Delete items
-        items_raw_output = self._run("list", "items", "--session", session)
-        items = json.loads(items_raw_output)
+        # List filters cannot be trusted for clearing: the plain list hides
+        # archived items and the --archived filter is unreliable in CLI 2026.x,
+        # so the vault is enumerated through a throwaway export instead, which
+        # reports every item including archived ones.
+        snapshot_path = "/data/clear_snapshot.json"
+        self._run(
+            "export",
+            "--format",
+            "json",
+            "--output",
+            snapshot_path,
+            "--session",
+            session,
+            timeout=600,
+        )
+        with open(snapshot_path, encoding="utf-8") as snapshot_file:
+            snapshot = json.load(snapshot_file)
+        os.remove(snapshot_path)
+
+        items = snapshot.get("items", [])
         if items:
-            logger.info("Deleting %d existing items...", len(items))
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            logger.info("Permanently deleting %d existing items...", len(items))
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
                     executor.submit(self._delete_item, item["id"], session)
                     for item in items
@@ -132,144 +160,55 @@ class BitwardenImporter:
                 for future in as_completed(futures):
                     try:
                         future.result()
+                    except RuntimeError as error:
+                        # An item already gone (stale snapshot) counts as cleared
+                        if "not found" in str(error).lower():
+                            continue
+                        logger.warning("Failed to delete item: %s", error)
                     except Exception as error:
                         logger.warning("Failed to delete item: %s", error)
+        else:
+            logger.info("Existing vault has no items to delete")
 
-        # Delete folders
-        folders_raw_output = self._run("list", "folders", "--session", session)
-        folders = json.loads(folders_raw_output)
-        if folders:
-            logger.info("Deleting %d existing folders...", len(folders))
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        # Exports exclude trashed ciphers, so the trash is listed separately;
+        # permanent deletes keep it empty instead of accumulating ~400 per day
+        trashed_items = json.loads(
+            self._run("list", "items", "--trash", "--session", session)
+        )
+        if trashed_items:
+            logger.info(
+                "Permanently deleting %d trashed items...", len(trashed_items)
+            )
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
-                    executor.submit(self._delete_folder, folder["id"], session)
-                    for folder in folders
+                    executor.submit(self._delete_item, item["id"], session)
+                    for item in trashed_items
                 ]
                 for future in as_completed(futures):
                     try:
                         future.result()
                     except Exception as error:
-                        logger.warning("Failed to delete folder: %s", error)
+                        logger.warning("Failed to delete trashed item: %s", error)
+
+        folders = snapshot.get("folders", [])
+        if folders:
+            logger.info("Permanently deleting %d existing folders...", len(folders))
+            for folder in folders:
+                try:
+                    self._delete_folder(folder["id"], session)
+                except RuntimeError as error:
+                    # Stale folder listings are common right after bulk deletes
+                    if "not found" in str(error).lower():
+                        continue
+                    logger.warning("Failed to delete folder: %s", error)
+                except Exception as error:
+                    logger.warning("Failed to delete folder: %s", error)
 
     def _delete_item(self, item_id, session):
         logger.debug("Deleting item: %s", item_id)
-        self._run("delete", "item", item_id, "--session", session)
+        # Permanent delete keeps the cloud Trash from filling up on every sync
+        self._run("delete", "item", item_id, "--permanent", "--session", session)
 
     def _delete_folder(self, folder_id, session):
         logger.debug("Deleting folder: %s", folder_id)
-        self._run("delete", "folder", folder_id, "--session", session)
-
-    def _recreate_folders(self, session, folders):
-        folder_map = {}
-        if not folders:
-            return folder_map
-
-        logger.info("Recreating %d folders...", len(folders))
-        for folder in folders:
-            name = folder.get("name", "Unnamed Folder")
-            try:
-                payload = json.dumps({"name": name})
-                encoded = self._run("encode", standard_input=payload)
-                raw_output = self._run(
-                    "create", "folder", "--session", session, standard_input=encoded
-                )
-                created = json.loads(raw_output)
-                folder_map[folder["id"]] = created["id"]
-                logger.debug("Folder: %s -> %s", name, created["id"])
-            except Exception as error:
-                logger.warning("Failed to create folder '%s': %s", name, error)
-
-        return folder_map
-
-    def _import_items(self, session, items, folder_map):
-        sanitized = []
-        for item in items:
-            clean = self._sanitize(item, folder_map)
-            if clean:
-                sanitized.append(clean)
-
-        total = len(sanitized)
-        logger.info(
-            "Importing %d items (%d workers)...",
-            total,
-            self.max_workers,
-        )
-
-        imported = 0
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(
-                    self._create_item, item, session, item_index, total
-                ): item.get("name", "Unknown")
-                for item_index, item in enumerate(sanitized, 1)
-            }
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    future.result()
-                    imported += 1
-                except Exception as error:
-                    logger.warning("Failed to import '%s': %s", name, error)
-
-        logger.info("Imported %d/%d items", imported, total)
-        return imported
-
-    def _sanitize(self, item, folder_map):
-        clean = copy.deepcopy(item)
-
-        for key in (
-            "id",
-            "object",
-            "organizationId",
-            "collectionIds",
-            "revisionDate",
-            "creationDate",
-            "deletedDate",
-            "edit",
-            "viewPassword",
-            "attachments",
-        ):
-            clean.pop(key, None)
-
-        old_folder_id = item.get("folderId")
-        if old_folder_id and old_folder_id in folder_map:
-            clean["folderId"] = folder_map[old_folder_id]
-        elif old_folder_id:
-            clean["folderId"] = None
-        elif old_folder_id is None and "folderId" in item:
-            clean.pop("folderId", None)
-
-        login = clean.get("login")
-        if login and login.get("fido2Credentials"):
-            for credential in login["fido2Credentials"]:
-                credential.pop("id", None)
-
-        return clean
-
-    def _create_item(self, item, session, item_index, total):
-        name = item.get("name", "Unknown")
-        logger.debug("[%d/%d] Creating: %s", item_index, total, name)
-
-        payload = json.dumps(item)
-        encoded = self._run("encode", standard_input=payload)
-
-        for attempt in range(3):
-            try:
-                self._run(
-                    "create", "item", "--session", session, standard_input=encoded
-                )
-                return
-            except RuntimeError as error:
-                error_message = str(error).lower()
-                if "rate limit" in error_message or "429" in error_message or "too many" in error_message:
-                    wait_seconds = (2 ** attempt) * 2
-                    logger.debug(
-                        "Rate limited by server, waiting %d seconds (attempt %d of 3)...",
-                        wait_seconds,
-                        attempt + 1,
-                    )
-                    time.sleep(wait_seconds)
-                else:
-                    raise
-
-        raise RuntimeError(f"Failed to create item after 3 attempts: {name}")
+        self._run("delete", "folder", folder_id, "--permanent", "--session", session)

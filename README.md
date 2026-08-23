@@ -19,7 +19,7 @@ Keep your self-hosted passwords safe in the cloud. MitchVault Sync mirrors your 
 ┌──────────────────┐     ┌─────────────────────────┐     ┌──────────────────┐
 │   Vaultwarden    │────▶│  ┌─────────┐ ┌────────┐  │────▶│  Bitwarden Cloud │
 │    (your LAN)    │     │  │ export  │ │ import │  │     │    (backup)      │
-│                  │     │  │ 10 workers│ │ 5 workers│ │     │                  │
+│                  │     │  │ 1 call  │ │ 1 call │  │     │                  │
 └──────────────────┘     │  └─────────┘ └────────┘  │     └──────────────────┘
                          │       cron: daily         │
                          └─────────────────────────┘
@@ -70,8 +70,8 @@ MitchVault Sync gives you an always-fresh, always-encrypted copy of your vault i
 | :file_folder: Organisation | Folders are recreated and items placed correctly |
 | :zap: Speed | 10 export workers, 5 import workers — parallel by default |
 | :clock1: Schedule | Human-readable (`daily`, `weekly`, `3:00`) or cron |
-| :mag: Visibility | INFO logs for overview, DEBUG for per-item tracing |
-| :lock: Security | API key auth, TLS everywhere, no telemetry, no third parties |
+| :mag: Visibility | INFO logs for overview, DEBUG for every CLI command |
+| :lock: Security | API key auth for the target, TLS everywhere, no telemetry, no third parties |
 | :package: Deploy | Single `docker compose up -d`, runs on Pi, Synology, VPS |
 
 ---
@@ -192,8 +192,7 @@ LOG_LEVEL=INFO            # DEBUG for troubleshooting
 | `SYNC_SCHEDULE` | No | `daily` | Human-readable schedule (see [Scheduling](#scheduling)) |
 | `SYNC_CRON` | No | — | Raw cron expression — overrides `SYNC_SCHEDULE` |
 | `LOG_LEVEL` | No | `INFO` | Log verbosity — `INFO` or `DEBUG` |
-| `EXPORT_WORKERS` | No | `10` | Parallel workers for the export phase |
-| `IMPORT_WORKERS` | No | `5` | Parallel workers for the import phase |
+| `HEALTHCHECK_MAX_AGE_HOURS` | No | `48` | Hours after which a stale last sync marks the container unhealthy |
 
 </details>
 
@@ -250,7 +249,7 @@ docker compose build --no-cache
 
 ### Healthcheck
 
-The container includes a built-in healthcheck. It verifies that the `/data/last_sync` file exists, which is created after the first successful sync. If the initial sync fails, the container will show as **unhealthy** until a sync succeeds.
+The container reports **healthy** only while `/data/last_sync` is fresh — written after each successful sync and checked against `HEALTHCHECK_MAX_AGE_HOURS` (default 48). If syncs start failing, the container turns unhealthy once the last success ages past that window, so a broken backup never looks fine.
 
 ### Architecture
 
@@ -258,12 +257,13 @@ The container includes a built-in healthcheck. It verifies that the `/data/last_
 mitchvault-sync/
 ├── sync.py                 # Entrypoint — scheduler and orchestrator
 ├── src/
-│   ├── exporter.py         # Phase 1: Export from Vaultwarden via Bitwarden CLI
-│   └── importer.py         # Phase 2: Import to Bitwarden cloud via Bitwarden CLI
-├── data/                   # Mounted volume — cache and CLI state
+│   ├── bw_cli.py           # Shared Bitwarden CLI runner (session-key redaction)
+│   ├── exporter.py         # Phase 1: Single-call vault export from Vaultwarden
+│   └── importer.py         # Phase 2: Clear + single-call import to Bitwarden cloud
+├── data/                   # Mounted volume — CLI state and transient export
 │   ├── vaultwarden/        # Bitwarden CLI data directory (isolated session)
 │   ├── bitwarden/          # Bitwarden CLI data directory (isolated session)
-│   ├── vault_cache.json    # Exported vault cache
+│   ├── vault_export.json   # Plaintext export, deleted at the end of every cycle
 │   └── last_sync           # Timestamp of last successful sync
 ├── Dockerfile
 ├── docker-compose.yml
@@ -274,28 +274,30 @@ mitchvault-sync/
 
 ### Sync Flow
 
-1. **Login** — Authenticate to Vaultwarden via Bitwarden CLI (API key or email/password)
-2. **Unlock** — Decrypt the vault with your master password
-3. **Export** — List all item IDs, fetch each fully decrypted in parallel (10 workers)
-4. **Cache** — Save the full vault as JSON to `/data/vault_cache.json`
-5. **Login** — Authenticate to Bitwarden cloud via Bitwarden CLI (API key)
-6. **Clear** — Delete all existing items and folders from the Bitwarden vault
-7. **Import** — Recreate folders, then import all items in parallel (5 workers)
-8. **Verify** — Log the counts and write a success timestamp
+1. **Login** — Authenticate to Vaultwarden with email/password via the Bitwarden CLI
+2. **Unlock** — Decrypt the source vault with your master password
+3. **Export** — One `bw export` call writes the fully decrypted vault to `/data/vault_export.json`
+4. **Login** — Authenticate to Bitwarden cloud via the Bitwarden CLI (API key)
+5. **Unlock** — Decrypt the target vault with your Bitwarden master password
+6. **Clear** — Permanently delete all existing items and folders from the Bitwarden vault
+7. **Import** — One `bw import` call loads the entire exported vault, rebuilding folders natively
+8. **Verify** — Compare item counts, delete the export file, write a success timestamp
 
 ### Performance
+
+Sync time is dominated by the clear phase (one API call per existing item). The export and import themselves are single calls each, so total time scales far better than item-by-item approaches:
 
 | Vault Size | Total Time |
 |---|---|
 | 50 items | ~20 seconds |
-| 200 items | ~70 seconds |
-| 500 items | ~3 minutes |
-| 1000 items | ~5 minutes |
+| 200 items | ~45 seconds |
+| 500 items | ~90 seconds |
+| 1000 items | ~3 minutes |
 
-Times are approximate. Network latency and parallel worker counts affect actual performance.
+Times are approximate and depend on network latency.
 
 > **Tip**
-> If the import is slower than expected, check your logs for rate limit warnings. Reduce `IMPORT_WORKERS` if needed.
+> If a sync cycle fails partway, the container healthcheck turns unhealthy within `HEALTHCHECK_MAX_AGE_HOURS` — check the logs for the failing step.
 
 ---
 
@@ -305,17 +307,18 @@ Default log level is `INFO`. You will see phase transitions, item counts, and a 
 
 ```
 2026-06-26 02:00:01 | INFO     | mitchvault   | MitchVault Sync — starting cycle
-2026-06-26 02:00:03 | INFO     | exporter     | Found 142 items
-2026-06-26 02:00:50 | INFO     | importer     | Imported 142/142 items
-2026-06-26 02:00:51 | INFO     | mitchvault   | Sync complete: exported 142, imported 142 in 50s
+2026-06-26 02:00:09 | INFO     | exporter     | Export complete: 142 items, 6 folders
+2026-06-26 02:00:15 | INFO     | importer     | Importing 142 items via Bitwarden CLI import...
+2026-06-26 02:00:21 | INFO     | importer     | Import verified: 142/142 items present in Bitwarden
+2026-06-26 02:00:22 | INFO     | mitchvault   | Sync complete: exported 142, imported 142 in 21s
 ```
 
-Set `LOG_LEVEL=DEBUG` for per-item progress and every Bitwarden CLI command:
+Set `LOG_LEVEL=DEBUG` for every Bitwarden CLI command (session keys are always masked):
 
 ```
-2026-06-26 02:00:05 | DEBUG    | exporter     | [1/142] GitHub
-2026-06-26 02:00:05 | DEBUG    | exporter     | Bitwarden CLI: get item abc123-def456 --session ...
-2026-06-26 02:01:20 | DEBUG    | importer     | [42/142] Creating: Google
+2026-06-26 02:00:05 | DEBUG    | exporter     | Bitwarden CLI: export --format json --output /data/vault_export.json --session ***session***
+2026-06-26 02:00:09 | INFO     | exporter     | Export complete: 142 items, 6 folders
+2026-06-26 02:00:15 | INFO     | importer     | Importing 142 items via Bitwarden CLI import...
 ```
 
 ---
@@ -342,11 +345,11 @@ Set `LOG_LEVEL=DEBUG` for per-item progress and every Bitwarden CLI command:
 - Verify `BITWARDEN_MP` is correct (API keys are for login only, vault decryption always requires the master password)
 - Check for special characters in the password that may need escaping in `.env`
 
-### "Failed to create item" or rate limit errors
+### "Import verification failed" or import errors
 
-- Reduce `IMPORT_WORKERS` — the default is 5, try 2
-- Bitwarden cloud enforces rate limits — the sync retries automatically with exponential backoff
-- If the issue persists, schedule your sync during off-peak hours
+- The importer compares item counts before declaring success — a mismatch means the native import did not complete; check the preceding CLI error
+- Bitwarden cloud enforces rate limits — the sync is a single bulk call, so re-run the cycle after waiting a few minutes
+- Confirm the target vault has no folder/collection policies blocking personal items
 
 ### Enable debug logging
 
@@ -360,7 +363,7 @@ Then view the logs:
 docker compose logs -f mitchvault-sync
 ```
 
-Debug mode shows every Bitwarden CLI command, every API response, and per-item progress.
+Debug mode shows every Bitwarden CLI command (session keys masked) and per-phase progress.
 
 ### Sync reports "0 items exported"
 
@@ -370,10 +373,9 @@ Debug mode shows every Bitwarden CLI command, every API response, and per-item p
 
 ### Container shows "unhealthy"
 
-- The healthcheck verifies that `/data/last_sync` exists
-- This file is created after the first successful sync completes
-- If the initial sync fails, the container stays unhealthy until a sync succeeds
-- Check the logs to diagnose why the initial sync failed
+- The healthcheck fails when `/data/last_sync` is missing **or older than** `HEALTHCHECK_MAX_AGE_HOURS` (default 48)
+- A stale timestamp means recent syncs have been failing even if the container itself is running
+- Check the logs to diagnose why the current sync failed
 
 ---
 
@@ -394,7 +396,7 @@ The Bitwarden CLI binary is downloaded for the correct architecture at build tim
 - **API keys** and **master passwords** are stored as environment variables in your `.env` file
 - Use Docker secrets or a secrets manager for production deployments
 - Never commit `.env` to version control (it is listed in `.gitignore`)
-- The vault cache file (`/data/vault_cache.json`) contains **decrypted** vault items — mount the data volume on encrypted storage if your threat model requires it
+- The export file (`/data/vault_export.json`) contains **decrypted** vault items while a sync runs — it is deleted at the end of every cycle; mount the data volume on encrypted storage or tmpfs if your threat model requires it
 - The Bitwarden CLI session data is stored in `/data/vaultwarden/` and `/data/bitwarden/` — these directories persist across container restarts
 
 See **[PRIVACY.md](PRIVACY.md)** for a comprehensive document covering data flow, encryption states, storage locations, and hardening recommendations.
