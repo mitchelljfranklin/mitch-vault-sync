@@ -1,0 +1,90 @@
+# Builds the multi-arch image (linux/amd64 + linux/arm64) and publishes it
+# to GitHub Container Registry (ghcr.io).
+#
+# Triggers:
+#   - Publishing a GitHub release (recommended): publishes the version tag
+#     (e.g. release v1.2.0 -> image tags "1.2.0" and "latest")
+#   - Manual run via Actions tab ("Run workflow"): publishes "latest" only,
+#     unless "Also tag with a custom version" is filled in.
+#
+# armv7 / 32-bit Raspberry Pi OS is intentionally not built: Bitwarden does
+# not publish ARMv7 CLI binaries. Pi 4/5 on 64-bit Raspberry Pi OS are covered
+# by linux/arm64.
+
+name: Build and Publish Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      custom_tag:
+        description: "Optional extra image tag for this manual build"
+        required: false
+        default: ""
+      publish_latest:
+        description: "Also update the latest tag (manual runs only)"
+        type: boolean
+        required: false
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify the pinned Bitwarden CLI assets exist
+        run: |
+          BW_VERSION="$(grep -E '^ARG BW_VERSION=' Dockerfile | cut -d= -f2)"
+          echo "Checking cli-v${BW_VERSION} release assets..."
+          curl -fsSL \
+            "https://api.github.com/repos/bitwarden/clients/releases/tags/cli-v${BW_VERSION}" \
+            | grep -q "\"bw-linux-${BW_VERSION}.zip\"" \
+            || { echo "bw-linux-${BW_VERSION}.zip is missing from cli-v${BW_VERSION}; refusing to build"; exit 1; }
+          curl -fsSL \
+            "https://api.github.com/repos/bitwarden/clients/releases/tags/cli-v${BW_VERSION}" \
+            | grep -q "\"bw-linux-arm64-${BW_VERSION}.zip\"" \
+            || { echo "bw-linux-arm64-${BW_VERSION}.zip is missing from cli-v${BW_VERSION}; refusing to build"; exit 1; }
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags and labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Release builds: semver tag from the release, plus latest
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' || inputs.publish_latest }}
+            # Manual builds: optional extra tag from the input
+            type=raw,value=${{ inputs.custom_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.custom_tag != '' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

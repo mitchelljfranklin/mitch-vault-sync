@@ -100,31 +100,13 @@ The container acts as a **decryption/encryption relay**. It decrypts items from 
 
 ### Production Hardening
 
-For deployments where the host is shared or security posture is high:
+For deployments where the host is shared or security posture is high, `docker-compose.yml` ships with a hardening block ready to uncomment: non-root user, read-only root filesystem, dropped capabilities, and `no-new-privileges`. Uncomment the "Optional hardening" section there — the only preparation needed is owning the data directory with the matching uid:
 
-```yaml
-# docker-compose.yml additions
-services:
-  mitchvault-sync:
-    # Run as non-root (requires uid 1000 to own /data)
-    user: "1000:1000"
-
-    # Read-only root filesystem
-    read_only: true
-
-    # tmpfs for writable paths
-    tmpfs:
-      - /tmp
-      - /data
-
-    # Drop all capabilities
-    cap_drop:
-      - ALL
-
-    # Prevent privilege escalation
-    security_opt:
-      - no-new-privileges:true
+```bash
+chown -R 1000:1000 ./data
 ```
+
+To also keep the transient plaintext export out of disk entirely, swap the volumes block for the documented tmpfs alternative (tradeoff: re-authentication on every restart).
 
 ## Data Minimization
 

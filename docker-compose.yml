@@ -1,17 +1,88 @@
+# ── MitchVault Sync — Docker Compose ────────────────────────────────────────
+#
+# One-way Vaultwarden -> Bitwarden vault synchronization.
+#
+# Two ways to run:
+#   1. Prebuilt image (recommended): just run
+#        docker compose pull && docker compose up -d
+#   2. Build locally from source: comment out "image" below, uncomment the
+#      "build" section, then run
+#        docker compose up -d --build
+#
+# Before first start: copy .env.example to .env and fill in your values.
+
 services:
   mitchvault-sync:
-    build:
-      context: .
-      args:
-        BW_VERSION: "2026.6.0"
+    # Multi-arch prebuilt image (linux/amd64 + linux/arm64 — covers x86_64,
+    # Raspberry Pi 4/5 on 64-bit OS, Apple Silicon). Pin a release instead of
+    # latest for reproducible deployments, e.g. :1.0.0
+    image: ghcr.io/mitchelljfranklin/mitch-vault-sync:latest
+
+    # Local build alternative (comment "image" above first):
+    # build:
+    #   context: .
+    #   args:
+    #     # Bitwarden CLI version to bake in. Must exist at
+    #     # https://github.com/bitwarden/clients/releases with both
+    #     # bw-linux-<version>.zip and bw-linux-arm64-<version>.zip assets.
+    #     BW_VERSION: "2026.6.0"
+
     container_name: mitchvault-sync
     restart: unless-stopped
+
+    # All required credentials and settings live in .env; see .env.example
     env_file:
       - .env
+
     volumes:
       - ./data:/data
+
+    # Privacy option: keep CLI state and the transient plaintext export in RAM
+    # instead of on disk by replacing the volumes block above with:
+    #   tmpfs:
+    #     - /data
+    # Tradeoff: state is lost on every restart, so the container
+    # re-authenticates and re-syncs from scratch after each restart.
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+    # ── Optional overrides (uncomment to change) ──────────────────────────────
+    # Any value here takes precedence over the same key in .env.
+    #
+    # environment:
+    #   # Schedule: hourly | daily | 12h | 6h | 4h | 2h | 1h | weekly | 7d |
+    #   # "3:00" or "3:00 Europe/London" (daily at 3 AM)
+    #   SYNC_SCHEDULE: daily
+    #   # Raw cron expression in UTC; wins over SYNC_SCHEDULE when set
+    #   SYNC_CRON: "0 2 * * *"
+    #   # Bitwarden cloud region; use https://vault.bitwarden.eu for EU accounts
+    #   BITWARDEN_SERVER: https://vault.bitwarden.com
+    #   # INFO for phase summaries, DEBUG for every CLI command (keys masked)
+    #   LOG_LEVEL: INFO
+    #   # Container turns unhealthy when the last successful sync is older
+    #   # than this many hours; keep above your schedule interval
+    #   HEALTHCHECK_MAX_AGE_HOURS: "48"
+
+    # ── Optional hardening (uncomment to enable) ──────────────────────────────
+    # Run as a non-root user; uid:gid must own ./data on the host
+    # (chown 1000:1000 ./data)
+    # user: "1000:1000"
+    #
+    # Read-only root filesystem; /tmp stays writable via tmpfs
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #
+    # Drop all Linux capabilities; the container needs none
+    # cap_drop:
+    #   - ALL
+    # security_opt:
+    #   - no-new-privileges:true
+
+    # The healthcheck comes baked into the image: it fails once
+    # /data/last_sync is older than HEALTHCHECK_MAX_AGE_HOURS (default 48),
+    # so a broken backup never looks healthy.

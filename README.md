@@ -85,9 +85,11 @@ cd mitchvault-sync
 
 # 2. Create your configuration
 cp .env.example .env
-# Open .env and fill in your Vaultwarden URL, API keys, and master password
+# Open .env and fill in your Vaultwarden login, Bitwarden API keys,
+# and both master passwords
 
-# 3. Start the container
+# 3. Pull the prebuilt multi-arch image and start
+docker compose pull
 docker compose up -d
 
 # 4. Watch the first sync
@@ -96,6 +98,7 @@ docker compose logs -f
 
 > **Note**
 > The first sync runs immediately on startup, then on your configured schedule. The default schedule is every 24 hours.
+> Prefer building from source? See [Docker Deployment](#docker-deployment) — one commented block in `docker-compose.yml` switches you over.
 
 That's it. Your vault is now backing up automatically.
 
@@ -233,9 +236,11 @@ When `SYNC_CRON` is set, it takes priority over `SYNC_SCHEDULE`.
 
 ## Docker Deployment
 
+The published image is multi-arch (`linux/amd64` + `linux/arm64`), so the same command covers x86_64 servers, Raspberry Pi 4/5 on 64-bit Raspberry Pi OS, and Apple Silicon:
+
 ```bash
-# Build and start
-docker compose up -d
+# Start with the prebuilt image
+docker compose pull && docker compose up -d
 
 # View logs
 docker compose logs -f
@@ -243,9 +248,21 @@ docker compose logs -f
 # Stop
 docker compose down
 
-# Rebuild after updating the code
-docker compose build --no-cache
+# Update to the newest image
+docker compose pull && docker compose up -d
 ```
+
+Image tags: `latest` tracks the newest release; each release also publishes its version (e.g. `1.0.0`) — pin that in `docker-compose.yml` for reproducible deployments. Releases are built automatically by GitHub Actions (`.github/workflows/release.yml`), which can also be triggered manually from the Actions tab.
+
+### Building locally from source
+
+Comment out `image:` in `docker-compose.yml`, uncomment the `build:` block, then:
+
+```bash
+docker compose up -d --build
+```
+
+To force a rebuild after code changes: `docker compose build --no-cache`.
 
 ### Healthcheck
 
@@ -267,6 +284,9 @@ mitchvault-sync/
 │   └── last_sync           # Timestamp of last successful sync
 ├── Dockerfile
 ├── docker-compose.yml
+├── .github/
+│   └── workflows/
+│       └── release.yml      # Multi-arch image build -> GitHub Container Registry
 ├── requirements.txt
 ├── .env.example
 └── .env                    # Your configuration (never committed)
@@ -381,13 +401,16 @@ Debug mode shows every Bitwarden CLI command (session keys masked) and per-phase
 
 ## Building for ARM
 
-The Dockerfile detects your architecture automatically. For ARM devices (Raspberry Pi, Apple Silicon):
+Nothing special is required: the published image is already multi-arch, so Raspberry Pi 4/5 (64-bit OS), Apple Silicon, and ARM servers just run `docker compose up -d` like everything else.
+
+When building locally from source, the same build produces both architectures — the Dockerfile selects the correct Bitwarden CLI binary via the `TARGETARCH` build argument that Docker supplies automatically:
 
 ```bash
-docker compose build --build-arg BW_VERSION=2024.11.1
+docker compose up -d --build
 ```
 
-The Bitwarden CLI binary is downloaded for the correct architecture at build time.
+> **Note**
+> 32-bit ARM (armv7 / older Raspberry Pi OS) is not supported — Bitwarden does not publish ARMv7 CLI binaries.
 
 ---
 

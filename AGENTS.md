@@ -26,8 +26,9 @@ Real verification is manual: `docker compose up --build`, watch `docker compose 
 - Archived state survives bitwardenjson import intact (`archivedDate` carried) — verified live; do not strip that field.
 - Session keys in command args are masked by `format_cli_arguments()` in `src/bw_cli.py` — route any new CLI logging/error text through it or keys leak into logs.
 - "Not found" errors during deletes are treated as success on purpose: stale snapshots and laggy indexes make already-vanished items normal.
-- `BW_VERSION` is pinned in **both** `Dockerfile` (ARG) and `docker-compose.yml` (build arg) — update both together.
-- No ARMv7 binaries exist for CLI 2026.x; Dockerfile only handles x86_64 and arm64.
+- `BW_VERSION` is pinned in the **Dockerfile** (authoritative ARG); the docker-compose build-arg block is commented out and only matters for local source builds — update both together if you touch them.
+- Arch selection uses buildx's `TARGETARCH` (`amd64`/`arm64`) with a `--platform=$BUILDPLATFORM` base, so multi-arch builds run natively without QEMU. No ARMv7 binaries exist for CLI 2026.x; only amd64 and arm64 are built.
+- Releases are published to GHCR by `.github/workflows/release.yml`: on release publish it tags `<version>` + `latest`; manual dispatch exists in the Actions tab. The workflow refuses to build if the pinned CLI's `bw-linux` / `bw-linux-arm64` zips are missing from the GitHub release.
 - Check latest CLI version at `https://api.github.com/repos/bitwarden/clients/releases/tags/cli-v<VERSION>` — verify the `bw-linux-<VERSION>.zip` asset exists before pinning.
 
 ## Sync semantics
