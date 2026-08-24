@@ -83,10 +83,9 @@ MitchVault Sync gives you an always-fresh, always-encrypted copy of your vault i
 git clone https://github.com/mitchelljfranklin/mitchvault-sync.git
 cd mitchvault-sync
 
-# 2. Create your configuration
-cp .env.example .env
-# Open .env and fill in your Vaultwarden login, Bitwarden API keys,
-# and both master passwords
+# 2. Configure
+# Open docker-compose.yml and fill in the "environment" block:
+# your Vaultwarden URL/login, Bitwarden API keys, and both master passwords
 
 # 3. Pull the prebuilt multi-arch image and start
 docker compose pull
@@ -149,13 +148,13 @@ That's it. Your vault is now backing up automatically.
 1. Log into your Vaultwarden web vault
 2. Use your account **email** and **password** to authenticate
 
-Vaultwarden does not support personal API keys. Use `VAULTWARDEN_EMAIL` and `VAULTWARDEN_PASSWORD` in your `.env` file.
+Vaultwarden does not support personal API keys. Use `VAULTWARDEN_EMAIL` and `VAULTWARDEN_PASSWORD` in the compose `environment` block.
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in your values:
+Set these in the `environment` block of `docker-compose.yml` (or via `${VAR}` references backed by a `.env` if you prefer keeping secrets separate):
 
 ```env
 # ── Vaultwarden (source) ──────────────────────────────────
@@ -363,7 +362,7 @@ Set `LOG_LEVEL=DEBUG` for every Bitwarden CLI command (session keys are always m
 ### Sync fails with "Bitwarden CLI command failed (unlock)"
 
 - Verify `BITWARDEN_MP` is correct (API keys are for login only, vault decryption always requires the master password)
-- Check for special characters in the password that may need escaping in `.env`
+- Check for special characters in the passwords that may need escaping in the compose `environment` block
 
 ### "Import verification failed" or import errors
 
@@ -416,9 +415,9 @@ docker compose up -d --build
 
 ## Security
 
-- **API keys** and **master passwords** are stored as environment variables in your `.env` file
+- **API keys** and **master passwords** are set as environment variables in the `docker-compose.yml` `environment` block — or via `${VAR}` references backed by a `.env` if you prefer keeping them out of the compose file
 - Use Docker secrets or a secrets manager for production deployments
-- Never commit `.env` to version control (it is listed in `.gitignore`)
+- If you use a `.env`, never commit it (it is listed in `.gitignore`)
 - The export file (`/data/vault_export.json`) contains **decrypted** vault items while a sync runs — it is deleted at the end of every cycle; mount the data volume on encrypted storage or tmpfs if your threat model requires it
 - The Bitwarden CLI session data is stored in `/data/vaultwarden/` and `/data/bitwarden/` — these directories persist across container restarts
 

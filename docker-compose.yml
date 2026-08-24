@@ -9,7 +9,11 @@
 #      "build" section, then run
 #        docker compose up -d --build
 #
-# Before first start: copy .env.example to .env and fill in your values.
+# Setup: fill in your values in the "environment" block below, then start.
+# There is no separate environment file required. If you prefer keeping
+# secrets out of this file, replace any literal value with a ${VAR_NAME}
+# reference and put VAR_NAME=value lines in a .env file next to this one;
+# Docker Compose reads that file automatically.
 
 services:
   mitchvault-sync:
@@ -30,9 +34,38 @@ services:
     container_name: mitchvault-sync
     restart: unless-stopped
 
-    # All required credentials and settings live in .env; see .env.example
-    env_file:
-      - .env
+    environment:
+      # ── Vaultwarden source (all four required) ────────────────────────────
+      VAULTWARDEN_URL: https://vault.example.com
+      VAULTWARDEN_MP: your-vaultwarden-master-password
+      # Vaultwarden does not support API keys: email/password login is used
+      VAULTWARDEN_EMAIL: you@example.com
+      VAULTWARDEN_PASSWORD: your-vaultwarden-password
+
+      # ── Bitwarden cloud target ────────────────────────────────────────────
+      # API key authenticates login only (Account Settings > Security > Keys)
+      BITWARDEN_CLIENT_ID: user.your-client-id
+      BITWARDEN_CLIENT_SECRET: your-client-secret
+      # Master password is always required to unlock/decrypt after login
+      BITWARDEN_MP: your-bitwarden-master-password
+      # Region: vault.bitwarden.com (US) or vault.bitwarden.eu (EU)
+      BITWARDEN_SERVER: https://vault.bitwarden.com
+
+      # ── Scheduling ────────────────────────────────────────────────────────
+      # hourly | daily | 12h | 6h | 4h | 2h | 1h | weekly | 7d |
+      # "3:00" or "3:00 Europe/London" (daily at 3 AM)
+      SYNC_SCHEDULE: daily
+      # Raw cron expression in UTC; wins over SYNC_SCHEDULE when set
+      # SYNC_CRON: "0 2 * * *"
+
+      # ── Logging ───────────────────────────────────────────────────────────
+      # INFO for phase summaries; DEBUG logs every CLI command (keys masked)
+      LOG_LEVEL: INFO
+
+      # ── Healthcheck ───────────────────────────────────────────────────────
+      # Container turns unhealthy once the last successful sync is older than
+      # this many hours; keep above your schedule interval
+      HEALTHCHECK_MAX_AGE_HOURS: "48"
 
     volumes:
       - ./data:/data
@@ -49,23 +82,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-    # ── Optional overrides (uncomment to change) ──────────────────────────────
-    # Any value here takes precedence over the same key in .env.
-    #
-    # environment:
-    #   # Schedule: hourly | daily | 12h | 6h | 4h | 2h | 1h | weekly | 7d |
-    #   # "3:00" or "3:00 Europe/London" (daily at 3 AM)
-    #   SYNC_SCHEDULE: daily
-    #   # Raw cron expression in UTC; wins over SYNC_SCHEDULE when set
-    #   SYNC_CRON: "0 2 * * *"
-    #   # Bitwarden cloud region; use https://vault.bitwarden.eu for EU accounts
-    #   BITWARDEN_SERVER: https://vault.bitwarden.com
-    #   # INFO for phase summaries, DEBUG for every CLI command (keys masked)
-    #   LOG_LEVEL: INFO
-    #   # Container turns unhealthy when the last successful sync is older
-    #   # than this many hours; keep above your schedule interval
-    #   HEALTHCHECK_MAX_AGE_HOURS: "48"
 
     # ── Optional hardening (uncomment to enable) ──────────────────────────────
     # Run as a non-root user; uid:gid must own ./data on the host
@@ -84,5 +100,5 @@ services:
     #   - no-new-privileges:true
 
     # The healthcheck comes baked into the image: it fails once
-    # /data/last_sync is older than HEALTHCHECK_MAX_AGE_HOURS (default 48),
+    # /data/last_sync is older than HEALTHCHECK_MAX_AGE_HOURS,
     # so a broken backup never looks healthy.

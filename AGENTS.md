@@ -41,4 +41,4 @@ Per `CONTRIBUTING.md`: no abbreviated variable names — spell them out (`master
 
 ## Secrets
 
-`.env` holds master passwords and API keys in plaintext; `.gitignore` covers `.env` and `.env.*` — never commit it or echo its contents into logs. `data/vault_export.json` contains the fully decrypted vault during a sync cycle; it is gitignored too.
+Credentials live either as literals in the `docker-compose.yml` `environment` block (the default setup) or as `${VAR}` references backed by `.env` (`.gitignore` covers `.env` and `.env.*`). Never echo credential values into logs; never commit real credentials in the compose file — keep placeholder examples there and put production values only in untracked files or the deployed copy. `data/vault_export.json` contains the fully decrypted vault during a sync cycle; it is gitignored too.
