@@ -68,7 +68,7 @@ MitchVault Sync gives you an always-fresh, always-encrypted copy of your vault i
 | :bust_in_silhouette: Identity | Logins, passkeys, cards, identities — all item types |
 | :key: Secrets | TOTP seeds, custom fields, password history |
 | :file_folder: Organisation | Folders are recreated and items placed correctly |
-| :zap: Speed | 10 export workers, 5 import workers — parallel by default |
+| :zap: Speed | Bulk API clear with automatic per-item CLI fallback; full replace remains the default |
 | :clock1: Schedule | Human-readable (`daily`, `weekly`, `3:00`) or cron |
 | :mag: Visibility | INFO logs for overview, DEBUG for every CLI command |
 | :lock: Security | API key auth for the target, TLS everywhere, no telemetry, no third parties |
@@ -273,12 +273,14 @@ The container reports **healthy** only while `/data/last_sync` is fresh — writ
 mitchvault-sync/
 ├── sync.py                 # Entrypoint — scheduler and orchestrator
 ├── src/
+│   ├── bitwarden_api.py    # Fast bulk clear via the Bitwarden client API
 │   ├── bw_cli.py           # Shared Bitwarden CLI runner (session-key redaction)
 │   ├── exporter.py         # Phase 1: Single-call vault export from Vaultwarden
-│   └── importer.py         # Phase 2: Clear + single-call import to Bitwarden cloud
+│   └── importer.py         # Phase 2: Clear + single-call import + verification
 ├── data/                   # Mounted volume — CLI state and transient export
 │   ├── vaultwarden/        # Bitwarden CLI data directory (isolated session)
 │   ├── bitwarden/          # Bitwarden CLI data directory (isolated session)
+│   ├── bitwarden_device_id # Stable device ID for API-key authentication
 │   ├── vault_export.json   # Plaintext export, deleted at the end of every cycle
 │   └── last_sync           # Timestamp of last successful sync
 ├── Dockerfile
@@ -298,22 +300,25 @@ mitchvault-sync/
 3. **Export** — One `bw export` call writes the fully decrypted vault to `/data/vault_export.json`
 4. **Login** — Authenticate to Bitwarden cloud via the Bitwarden CLI (API key)
 5. **Unlock** — Decrypt the target vault with your Bitwarden master password
-6. **Clear** — Permanently delete all existing items and folders from the Bitwarden vault
+6. **Clear** — Permanently delete every existing item and folder through Bitwarden's bulk API, falling back to per-item CLI deletion if needed, then confirm the vault is empty
 7. **Import** — One `bw import` call loads the entire exported vault, rebuilding folders natively
-8. **Verify** — Compare item counts, delete the export file, write a success timestamp
+8. **Verify** — Refresh the local cache with `bw sync --force`, compare item counts, delete the export file, write a success timestamp
 
 ### Performance
 
-Sync time is dominated by the clear phase (one API call per existing item). The export and import themselves are single calls each, so total time scales far better than item-by-item approaches:
+Sync time is dominated by login, sync, and import; the clear phase itself is now two bulk API calls. A 388-item vault completed in **62 seconds**, with the bulk clear taking about six seconds.
 
 | Vault Size | Total Time |
 |---|---|
-| 50 items | ~20 seconds |
-| 200 items | ~45 seconds |
-| 500 items | ~90 seconds |
-| 1000 items | ~3 minutes |
+| 50 items | ~45 seconds |
+| 200 items | ~50 seconds |
+| 500 items | ~65 seconds |
+| 1000 items | ~90 seconds |
 
-Times are approximate and depend on network latency.
+The first run against an empty target skips the delete phase and is similarly fast. Times are approximate and depend on network latency and import size.
+
+> **Fallback**
+> The fast clear uses Bitwarden's internal client API with the personal API key. If it is unavailable, the app automatically falls back to per-item CLI deletion, which is reliable but much slower (~4 seconds per existing item).
 
 > **Tip**
 > If a sync cycle fails partway, the container healthcheck turns unhealthy within `HEALTHCHECK_MAX_AGE_HOURS` — check the logs for the failing step.
@@ -328,7 +333,7 @@ Default log level is `INFO`. You will see phase transitions, item counts, and a 
 2026-06-26 02:00:01 | INFO     | mitchvault   | MitchVault Sync — starting cycle
 2026-06-26 02:00:09 | INFO     | exporter     | Export complete: 142 items, 6 folders
 2026-06-26 02:00:15 | INFO     | importer     | Importing 142 items via Bitwarden CLI import...
-2026-06-26 02:00:21 | INFO     | importer     | Import verified: 142/142 items present in Bitwarden
+2026-06-26 02:00:21 | INFO     | importer     | Import verified: 142/142 visible items present in Bitwarden
 2026-06-26 02:00:22 | INFO     | mitchvault   | Sync complete: exported 142, imported 142 in 21s
 ```
 
